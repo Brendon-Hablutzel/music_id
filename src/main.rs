@@ -1,9 +1,12 @@
 use actix_files::NamedFile;
-use actix_web::{http::header::ContentType, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer, Responder};
+use askama::Template;
 use diesel::prelude::*;
-use music_id::{establish_connection, models::Piece, AppErrors, to_server_err, to_client_err};
-use std::{fs, io, path::Path};
 use music_id::schema::music::dsl::*;
+use music_id::{
+    establish_connection, models::Piece, to_client_err, to_server_err, AppErrors, ErrorTemplate,
+};
+use std::{fs, io, path::Path};
 
 async fn media_full(path: web::Path<String>) -> actix_web::Result<NamedFile> {
     let target_title = path.into_inner();
@@ -99,9 +102,17 @@ async fn list_random(path: web::Path<u32>) -> actix_web::Result<impl Responder> 
 }
 
 async fn not_found() -> impl Responder {
-    HttpResponse::NotFound()
-        .content_type(ContentType::html())
-        .body("<h1>Error 404</h1>")
+    let status_code = StatusCode::NOT_FOUND;
+    let error_template = ErrorTemplate {
+        code: status_code,
+        text: "Page Not Found",
+    }
+    .render()
+    .expect("Failed to render err template");
+
+    HttpResponse::build(status_code)
+        .content_type("text/html")
+        .body(error_template)
 }
 
 #[actix_web::main]

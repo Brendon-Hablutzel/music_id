@@ -1,8 +1,5 @@
-use actix_web::{
-    error,
-    http::{header::ContentType, StatusCode},
-    HttpResponse,
-};
+use actix_web::{error, http::StatusCode, HttpResponse};
+use askama::Template;
 use diesel::{mysql::MysqlConnection, prelude::*};
 use dotenvy::dotenv;
 use models::NewPiece;
@@ -54,6 +51,13 @@ macro_rules! to_server_err {
     };
 }
 
+#[derive(Template)]
+#[template(path = "error.html")]
+pub struct ErrorTemplate<'a> {
+    pub code: StatusCode,
+    pub text: &'a str,
+}
+
 #[derive(Debug)]
 pub enum AppErrors {
     ServerError,
@@ -71,9 +75,16 @@ impl Display for AppErrors {
 
 impl error::ResponseError for AppErrors {
     fn error_response(&self) -> HttpResponse {
+        let error_template = ErrorTemplate {
+            code: self.status_code(),
+            text: &self.to_string(),
+        }
+        .render()
+        .expect("Failed to render err template");
+
         HttpResponse::build(self.status_code())
-            .insert_header(ContentType::html())
-            .body(self.to_string())
+            .content_type("text/html")
+            .body(error_template)
     }
 
     fn status_code(&self) -> StatusCode {
