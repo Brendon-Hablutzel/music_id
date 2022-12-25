@@ -14,7 +14,7 @@ async fn media_full(path: web::Path<String>) -> actix_web::Result<NamedFile> {
         .filter(title.like(format!("%{target_title}%")))
         .load::<Piece>(&mut connection))?;
 
-    let piece = to_client_err!(pieces.get(1).ok_or("No entries found"))?;
+    let piece = to_client_err!(pieces.get(0).ok_or("No entries found"))?;
 
     let piece_path = Path::new(&piece.file_path);
     Ok(NamedFile::open(piece_path)?)
