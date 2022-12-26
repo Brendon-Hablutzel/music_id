@@ -1,31 +1,44 @@
-use music_id::*;
+use diesel::prelude::*;
+use music_id::{models::NewPiece, schema::music, *};
 use std::{io::stdin, path::Path};
 
 fn main() -> Result<(), String> {
-    let mut connection = return_string_err!(establish_connection());
+    let mut connection = make_string_err!(establish_connection())?;
 
-    let mut name = String::new();
+    let mut title = String::new();
     let mut artist = String::new();
-    let mut path = String::new();
+    let mut file_path = String::new();
 
-    println!("Name:");
-    return_string_err!(stdin().read_line(&mut name));
-    let name = name.trim_end();
+    println!("Title:");
+    make_string_err!(stdin().read_line(&mut title))?;
+    let title = title.trim_end();
 
     println!("Artist:");
-    return_string_err!(stdin().read_line(&mut artist));
+    make_string_err!(stdin().read_line(&mut artist))?;
     let artist = artist.trim_end();
 
     println!("Path:");
-    return_string_err!(stdin().read_line(&mut path));
-    let path = path.trim_end();
+    make_string_err!(stdin().read_line(&mut file_path))?;
+    let file_path = file_path.trim_end();
 
-    if !Path::new(path).exists() {
+    let path = Path::new(file_path);
+
+    if !path.exists() {
         return Err("File does not exist".to_owned());
     }
 
-    let res = return_string_err!(create_piece(&mut connection, name, artist, path));
-    println!("Created piece: {res} rows affected");
+    let file_size = make_string_err!(path.metadata())?.len() as u32;
+
+    let new_piece = NewPiece {
+        title,
+        artist,
+        file_path,
+        file_size,
+    };
+
+    make_string_err!(diesel::insert_into(music::table)
+        .values(&new_piece)
+        .execute(&mut connection))?;
 
     Ok(())
 }

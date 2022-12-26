@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Quiz</title>
+</head>
+<body>
+  <h1>Quiz</h1>
+  <audio controls>
+    <source src="{{ correct_url }}" type="audio/mpeg">
+  </audio>
+  <ul>
+    {% for piece in pieces %}
+        {% if piece == correct_piece %}
+            <button id="correct">
+                {{ piece.title }} by {{ piece.artist }}
+            </button>
+        {% else %}
+            <button>
+                {{ piece.title }} by {{ piece.artist }}
+            </button>
+        {% endif %}
+    {% endfor %}
+  </ul>
+  <script>
+    document.getElementById("correct").addEventListener("click", () => {
+        alert("You answered correctly")
+    });
+  </script>
+</body>
+</html>

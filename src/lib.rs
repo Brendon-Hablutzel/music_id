@@ -2,53 +2,52 @@ use actix_web::{error, http::StatusCode, HttpResponse};
 use askama::Template;
 use diesel::{mysql::MysqlConnection, prelude::*};
 use dotenvy::dotenv;
-use models::NewPiece;
-use schema::music;
-use std::{env, fmt::Display, path::Path};
+use models::Piece;
+use std::{env, fmt::Display};
 
 pub mod models;
 pub mod schema;
 
 #[macro_export]
-macro_rules! return_string_err {
+macro_rules! make_string_err {
     ($fallible:expr) => {
-        match $fallible {
-            Ok(success) => success,
-            Err(failure) => return Err(failure.to_string()),
-        }
+        $fallible.map_err(|err| err.to_string())
     };
 }
 
 #[macro_export]
 macro_rules! to_client_err {
-    // ($fallible:expr, $message:literal) => {
-    //     match $fallible {
-    //         Ok(success) => Ok(success),
-    //         Err(err) => Err(AppErrors::ClientError($message.to_string()))
-    //     }
-    // };
     ($text:literal) => {
         Err(AppErrors::ClientError($text.to_owned()).into())
     };
     ($fallible:expr) => {
-        match $fallible {
-            Ok(success) => Ok(success),
-            Err(err) => Err(AppErrors::ClientError(err.to_string())),
-        }
+        $fallible.map_err(|err| AppErrors::ClientError(err.to_string()))
     };
 }
 
 #[macro_export]
 macro_rules! to_server_err {
     ($fallible:expr) => {
-        match $fallible {
-            Ok(success) => Ok(success),
-            Err(err) => {
-                eprintln!("INTERNAL SERVER ERROR: {}", err.to_string());
-                Err(AppErrors::ServerError)
-            }
-        }
+        $fallible.map_err(|err| {
+            eprintln!("INTERNAL SERVER ERROR: {}", err.to_string());
+            AppErrors::ServerError
+        })
     };
+}
+
+#[macro_export]
+macro_rules! query {
+    ($($fname:ident $arg:expr),*) => {
+        (|| {
+            Ok::<Vec<Piece>, String>(music
+                $(
+                    .$fname($arg)
+                )*
+                .load::<Piece>(&mut establish_connection()?)
+                .map_err(|err| err.to_string())?
+            )
+        })()
+    }
 }
 
 #[derive(Template)]
@@ -56,6 +55,14 @@ macro_rules! to_server_err {
 pub struct ErrorTemplate<'a> {
     pub code: StatusCode,
     pub text: &'a str,
+}
+
+#[derive(Template)]
+#[template(path = "quiz.html")]
+pub struct QuizTemplate<'a> {
+    pub pieces: &'a [Piece; 4],
+    pub correct_piece: &'a Piece,
+    pub correct_url: &'a str,
 }
 
 #[derive(Debug)]
@@ -108,34 +115,4 @@ pub fn establish_connection() -> Result<MysqlConnection, String> {
 
     Ok(MysqlConnection::establish(&database_url)
         .map_err(|err| format!("Error establishing database connection: {err}"))?)
-}
-
-pub fn create_piece(
-    connection: &mut MysqlConnection,
-    title: &str,
-    artist: &str,
-    file_path: &str,
-) -> Result<usize, String> {
-    let desired_file = Path::new(file_path);
-
-    if !desired_file.exists() {
-        return Err("File does not exist".to_owned());
-    }
-
-    let file_size = desired_file
-        .metadata()
-        .map_err(|err| err.to_string())?
-        .len() as u32;
-
-    let new_piece = NewPiece {
-        title,
-        artist,
-        file_path,
-        file_size,
-    };
-
-    Ok(diesel::insert_into(music::table)
-        .values(&new_piece)
-        .execute(connection)
-        .map_err(|err| err.to_string())?)
 }

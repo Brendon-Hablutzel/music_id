@@ -4,7 +4,7 @@ use std::fmt::Display;
 use crate::schema::music;
 use diesel::prelude::*;
 
-#[derive(Queryable, Serialize)]
+#[derive(Queryable, Serialize, Clone)]
 pub struct Piece {
     pub id: i32,
     pub title: String,
@@ -20,6 +20,19 @@ impl Display for Piece {
             "{}: {} by {} at {}",
             self.id, self.title, self.artist, self.file_path
         )
+    }
+}
+
+impl PartialEq for Piece {
+    fn eq(&self, other: &Self) -> bool {
+        if self.id == other.id {
+            true
+        } else {
+            false
+        }
+    }
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
     }
 }
 

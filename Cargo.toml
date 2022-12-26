@@ -12,3 +12,5 @@ actix-web = "4"
 actix-files = "0.6.2"
 serde = { version = "1.0", features = ["derive"] }
 askama = "0.11.1"
+rand = "0.8.5"
+reqwest = "0.11.13"

@@ -1,21 +1,22 @@
 use actix_files::NamedFile;
-use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, http::StatusCode, web, App, HttpResponse, HttpServer, Responder};
 use askama::Template;
 use diesel::prelude::*;
+use music_id::models::Piece;
 use music_id::schema::music::dsl::*;
 use music_id::{
-    establish_connection, models::Piece, to_client_err, to_server_err, AppErrors, ErrorTemplate,
+    establish_connection, query, to_client_err, to_server_err, AppErrors, ErrorTemplate,
+    QuizTemplate,
 };
+use rand::{seq::SliceRandom, thread_rng, Rng};
 use std::{fs, io, path::Path};
 
 async fn media_full(path: web::Path<String>) -> actix_web::Result<NamedFile> {
     let target_title = path.into_inner();
 
-    let mut connection = to_server_err!(establish_connection())?;
-
-    let pieces: Vec<Piece> = to_server_err!(music
-        .filter(title.like(format!("%{target_title}%")))
-        .load::<Piece>(&mut connection))?;
+    let pieces = to_server_err!(query!(
+        filter title.eq(target_title)
+    ))?;
 
     let piece = to_client_err!(pieces.get(0).ok_or("No entries found"))?;
 
@@ -35,13 +36,11 @@ async fn media_partial(path: web::Path<(String, u32, u32)>) -> actix_web::Result
         return to_client_err!("Invalid byte range: end cannot be greater than start");
     }
 
-    let mut connection = to_server_err!(establish_connection())?;
+    let pieces = to_server_err!(query!(
+        filter title.like(format!("%{target_title}%"))
+    ))?;
 
-    let piece: Vec<Piece> = to_server_err!(music
-        .filter(title.like(format!("%{target_title}%")))
-        .load::<Piece>(&mut connection))?;
-
-    let piece = to_client_err!(piece.get(0).ok_or("Piece not found"))?;
+    let piece = to_client_err!(pieces.get(0).ok_or("Piece not found"))?;
 
     if end > piece.file_size {
         return to_client_err!("Invalid byte range: end too large");
@@ -58,11 +57,9 @@ async fn media_partial(path: web::Path<(String, u32, u32)>) -> actix_web::Result
 async fn list_by_artist(path: web::Path<String>) -> actix_web::Result<impl Responder> {
     let artist_name = path.into_inner();
 
-    let mut connection = to_server_err!(establish_connection())?;
-
-    let pieces: Vec<Piece> = to_server_err!(music
-        .filter(artist.eq(format!("{artist_name}")))
-        .load::<Piece>(&mut connection))?;
+    let pieces = to_server_err!(query!(
+        filter artist.eq(format!("{artist_name}"))
+    ))?;
 
     Ok(web::Json(pieces))
 }
@@ -70,35 +67,67 @@ async fn list_by_artist(path: web::Path<String>) -> actix_web::Result<impl Respo
 async fn list_by_title(path: web::Path<String>) -> actix_web::Result<impl Responder> {
     let piece_title = path.into_inner();
 
-    let mut connection = to_server_err!(establish_connection())?;
-
-    let pieces: Vec<Piece> = to_server_err!(music
-        .filter(title.like(format!("%{piece_title}%")))
-        .load::<Piece>(&mut connection))?;
+    let pieces = to_server_err!(query!(
+        filter title.like(format!("%{piece_title}%"))
+    ))?;
 
     Ok(web::Json(pieces))
 }
 
 async fn list_all() -> actix_web::Result<impl Responder> {
-    let mut connection = to_server_err!(establish_connection())?;
-
-    let pieces = to_server_err!(music.load::<Piece>(&mut connection))?;
+    let pieces = to_server_err!(query!())?;
 
     Ok(web::Json(pieces))
 }
 
 async fn list_random(path: web::Path<u32>) -> actix_web::Result<impl Responder> {
     let number = path.into_inner();
-    let mut connection = to_server_err!(establish_connection())?;
 
     sql_function!(fn rand() -> Text);
 
-    let pieces = to_server_err!(music
-        .order(rand())
-        .limit(number.into())
-        .load::<Piece>(&mut connection))?;
+    let pieces = to_server_err!(query!(
+        order rand(),
+        limit number.into()
+    ))?;
 
     Ok(web::Json(pieces))
+}
+
+#[get("/quiz")]
+async fn quiz() -> actix_web::Result<impl Responder> {
+    sql_function!(fn rand() -> Text);
+
+    let pieces = to_server_err!(query!(
+        order rand(),
+        limit 4
+    ))?;
+
+    if pieces.len() != 4 {
+        return to_client_err!("Invalid number of pieces fetched");
+    }
+
+    let pieces = pieces.get(0..4).unwrap();
+    let correct = pieces.choose(&mut thread_rng()).unwrap();
+    let chunk_size = thread_rng().gen_range(correct.file_size / 20..correct.file_size / 10);
+    let start = thread_rng().gen_range(0..correct.file_size - chunk_size);
+    let correct_url = &format!(
+        "/media/partial/{}/{}/{}",
+        correct.title,
+        start,
+        start + chunk_size
+    );
+
+    let quiz_template = QuizTemplate {
+        pieces: pieces.try_into().unwrap(),
+        correct_piece: correct,
+        correct_url,
+    }
+    .render()
+    .unwrap();
+
+    Ok(HttpResponse::Ok()
+        .content_type("text/html")
+        .body(quiz_template))
 }
 
 async fn not_found() -> impl Responder {
@@ -135,6 +164,7 @@ async fn main() -> io::Result<()> {
                     .route("/by_title/{title}", web::get().to(list_by_title))
                     .route("/random/{number}", web::get().to(list_random)),
             )
+            .service(quiz)
             .default_service(web::route().to(not_found))
     })
     .bind(("127.0.0.1", 8080))?

@@ -3,14 +3,14 @@ use std::path::Path;
 use diesel::prelude::*;
 use music_id::models::Piece;
 use music_id::schema::music::dsl::*;
-use music_id::{establish_connection, return_string_err};
+use music_id::{establish_connection, make_string_err};
 
 fn main() -> Result<(), String> {
     println!("Searching for invalid file paths...");
 
-    let mut connection = return_string_err!(establish_connection());
+    let mut connection = make_string_err!(establish_connection())?;
 
-    let pieces = return_string_err!(music.load::<Piece>(&mut connection));
+    let pieces = make_string_err!(music.load::<Piece>(&mut connection))?;
 
     let invalid_pieces = pieces.iter().filter_map(|piece| {
         let piece_path = Path::new(&piece.file_path);
